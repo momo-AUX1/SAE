@@ -325,4 +325,4 @@ def send_email():
         return jsonify({'message': f'Error: {str(e)}'}), 500
 
 if __name__ == '__main__':
-    app.run(debug=not IS_PROD)
+    app.run(debug=not IS_PROD, port=8120)
