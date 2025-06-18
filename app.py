@@ -324,5 +324,103 @@ def send_email():
         app.logger.error(f"Error sending email: {str(e)}")
         return jsonify({'message': f'Error: {str(e)}'}), 500
 
+def serialize_signalement(s):
+    return {
+        'id': s.id,
+        'categorie': s.categorie,
+        'message': s.message,
+        'date': s.date.isoformat(),
+        'status': s.status,
+        'photo_path': s.photo_path,
+        'user_id': s.id_user
+    }
+
+@app.route('/api/signalements', methods=['GET'])
+@jwt_required()
+def get_all_signalements():
+    all_signalements = signalements.query.all()
+    return jsonify([serialize_signalement(s) for s in all_signalements]), 200
+
+@app.route('/api/signalement/<int:signalement_id>', methods=['GET'])
+@jwt_required()
+def get_signalement(signalement_id):
+    signalement = signalements.query.get(signalement_id)
+    if not signalement:
+        return jsonify({'message': 'Signalement not found'}), 404
+    return jsonify(serialize_signalement(signalement)), 200
+
+@app.route('/api/user/signalements', methods=['GET'])
+@jwt_required()
+def get_user_signalements():
+    current_user_id = get_jwt_identity()
+    user_signalements = signalements.query.filter_by(id_user=current_user_id).all()
+    return jsonify([serialize_signalement(s) for s in user_signalements]), 200
+
+@app.route('/api/signalement/<int:signalement_id>', methods=['PATCH'])
+@jwt_required()
+def edit_signalement(signalement_id):
+    current_user_id = get_jwt_identity()
+    signalement = signalements.query.get(signalement_id)
+    
+    if not signalement:
+        return jsonify({'message': 'Signalement not found'}), 404
+    
+    if signalement.id_user != int(current_user_id):
+        return jsonify({'message': 'Unauthorized to modify this signalement'}), 403
+
+    data = request.get_json()
+    updates = {}
+    
+    if 'categorie' in data:
+        updates['categorie'] = data['categorie']
+    if 'message' in data:
+        updates['message'] = data['message']
+    
+    if not updates:
+        return jsonify({'message': 'No updates provided'}), 400
+    
+    for key, value in updates.items():
+        setattr(signalement, key, value)
+    
+    db.session.commit()
+    return jsonify({'message': 'Signalement updated successfully'}), 200
+
+@app.route('/api/user', methods=['GET'])
+@jwt_required()
+def get_user_info():
+    current_user_id = get_jwt_identity()
+    user = utilisateurs.query.get(current_user_id)
+    
+    if not user:
+        return jsonify({'message': 'User not found'}), 404
+    
+    return jsonify({
+        'id': user.id,
+        'email': user.email,
+        'nom': user.nom,
+        'adresse': user.adresse
+    }), 200
+
+@app.route('/api/user', methods=['DELETE'])
+@jwt_required()
+def delete_user():
+    current_user_id = get_jwt_identity()
+    user = utilisateurs.query.get(current_user_id)
+    
+    if not user:
+        return jsonify({'message': 'User not found'}), 404
+    
+    user_signalements = signalements.query.filter_by(id_user=current_user_id).all()
+    for s in user_signalements:
+        if s.photo_path and os.path.exists(s.photo_path):
+            os.remove(s.photo_path)
+        db.session.delete(s)
+    
+    PushToken.query.filter_by(user_id=current_user_id).delete()
+    
+    db.session.delete(user)
+    db.session.commit()
+    return jsonify({'message': 'User deleted successfully'}), 200
+
 if __name__ == '__main__':
     app.run(debug=not IS_PROD, port=8120)
